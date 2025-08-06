@@ -10,6 +10,7 @@ import { getTranslations } from 'next-intl/server';
 import { cache, JSX } from 'react';
 
 import { Streamable } from '@/vibes/soul/lib/streamable';
+import Script from 'next/script';
 import { GetLinksAndSectionsQuery, LayoutQuery } from '~/app/[locale]/(default)/page-data';
 import { getSessionCustomerAccessToken } from '~/auth';
 import { client } from '~/client';
@@ -120,16 +121,28 @@ export const Footer = async () => {
   });
 
   return (
-    <FooterSection
-      contactInformation={contactInformation}
-      contactTitle={t('contactUs')}
-      copyright={copyright}
-      logo={logo}
-      logoHref="/"
-      logoLabel={t('home')}
-      paymentIcons={paymentIcons}
-      sections={streamableSections}
-      socialMediaLinks={socialMediaLinks}
-    />
+    <>
+      <FooterSection
+        contactInformation={contactInformation}
+        contactTitle={t('contactUs')}
+        copyright={copyright}
+        logo={logo}
+        logoHref="/"
+        logoLabel={t('home')}
+        paymentIcons={paymentIcons}
+        sections={streamableSections}
+        socialMediaLinks={socialMediaLinks}
+      />
+      <Script
+        src="https://cookiesstaging.blob.core.windows.net/scripttemplates/otSDKStub.js"
+        data-document-language="true"
+        type="text/javascript"
+        data-domain-script="af49c1fc-c518-468b-abe5-236656749d6b"
+        strategy="afterInteractive"
+      />
+      <Script id="optanon-wrapper" strategy="afterInteractive">
+        {`function OptanonWrapper() { }`}
+      </Script>
+    </>
   );
 };

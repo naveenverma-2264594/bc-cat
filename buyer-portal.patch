@@ -1,0 +1,2054 @@
+diff --git a/README.md b/README.md
+index 029d02b7..e1507051 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,5 @@
++### ℹ️ This is the new integration between catalyst and buyer-portal, if you are looking for the old version check: [integrations/b2b-buyer-portal-before-vibes](https://github.com/bigcommerce/catalyst/tree/integrations/b2b-buyer-portal-before-vibes)
++
+ <a href="https://catalyst.dev" target="_blank" rel="noopener norerrer">
+   <img src="https://storage.googleapis.com/bigcommerce-developers/images/catalyst_readme_banner.png" alt="Catalyst for Composable Commerce Image Banner" title="Catalyst">
+ </a>
+diff --git a/core/app/[locale]/(default)/(auth)/layout.tsx b/core/app/[locale]/(default)/(auth)/layout.tsx
+index cdccae99..25a9dde8 100644
+--- a/core/app/[locale]/(default)/(auth)/layout.tsx
++++ b/core/app/[locale]/(default)/(auth)/layout.tsx
+@@ -12,7 +12,7 @@ export default async function Layout({ children, params }: Props) {
+   const { locale } = await params;
+ 
+   if (loggedIn) {
+-    redirect({ href: '/account/orders', locale });
++    redirect({ href: '/?section=orders', locale });
+   }
+ 
+   return children;
+diff --git a/core/app/[locale]/(default)/(auth)/login/page.tsx b/core/app/[locale]/(default)/(auth)/login/page.tsx
+index 697db0d9..aadfd230 100644
+--- a/core/app/[locale]/(default)/(auth)/login/page.tsx
++++ b/core/app/[locale]/(default)/(auth)/login/page.tsx
+@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
+ 
+ export default async function Login({ params, searchParams }: Props) {
+   const { locale } = await params;
+-  const { redirectTo = '/account/orders' } = await searchParams;
++  const { redirectTo = '/?section=orders' } = await searchParams;
+ 
+   setRequestLocale(locale);
+ 
+diff --git a/core/app/[locale]/(default)/(auth)/register/_actions/register-customer.ts b/core/app/[locale]/(default)/(auth)/register/_actions/register-customer.ts
+deleted file mode 100644
+index 003c3b00..00000000
+--- a/core/app/[locale]/(default)/(auth)/register/_actions/register-customer.ts
++++ /dev/null
+@@ -1,414 +0,0 @@
+-'use server';
+-
+-import { BigCommerceGQLError } from '@bigcommerce/catalyst-client';
+-import { SubmissionResult } from '@conform-to/react';
+-import { parseWithZod } from '@conform-to/zod';
+-import { getLocale, getTranslations } from 'next-intl/server';
+-import { z } from 'zod';
+-
+-import { Field, FieldGroup, schema } from '@/vibes/soul/form/dynamic-form/schema';
+-import { signIn } from '~/auth';
+-import { client } from '~/client';
+-import { graphql, VariablesOf } from '~/client/graphql';
+-import { FieldNameToFieldId } from '~/data-transformers/form-field-transformer/utils';
+-import { redirect } from '~/i18n/routing';
+-import { getCartId } from '~/lib/cart';
+-
+-import { ADDRESS_FIELDS_NAME_PREFIX, CUSTOMER_FIELDS_NAME_PREFIX } from './prefixes';
+-
+-const RegisterCustomerMutation = graphql(`
+-  mutation RegisterCustomerMutation(
+-    $input: RegisterCustomerInput!
+-    $reCaptchaV2: ReCaptchaV2Input
+-  ) {
+-    customer {
+-      registerCustomer(input: $input, reCaptchaV2: $reCaptchaV2) {
+-        customer {
+-          firstName
+-          lastName
+-        }
+-        errors {
+-          ... on EmailAlreadyInUseError {
+-            message
+-          }
+-          ... on AccountCreationDisabledError {
+-            message
+-          }
+-          ... on CustomerRegistrationError {
+-            message
+-          }
+-          ... on ValidationError {
+-            message
+-          }
+-        }
+-      }
+-    }
+-  }
+-`);
+-
+-const stringToNumber = z.string().pipe(z.coerce.number());
+-
+-const inputSchema = z.object({
+-  firstName: z.string(),
+-  lastName: z.string(),
+-  email: z.string(),
+-  password: z.string(),
+-  phone: z.string().optional(),
+-  company: z.string().optional(),
+-  address: z
+-    .object({
+-      firstName: z.string(),
+-      lastName: z.string(),
+-      address1: z.string(),
+-      address2: z.string().optional(),
+-      city: z.string(),
+-      company: z.string().optional(),
+-      countryCode: z.string(),
+-      stateOrProvince: z.string().optional(),
+-      phone: z.string().optional(),
+-      postalCode: z.string().optional(),
+-      formFields: z.object({
+-        checkboxes: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            fieldValueEntityIds: z.array(stringToNumber),
+-          }),
+-        ),
+-        multipleChoices: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            fieldValueEntityId: stringToNumber,
+-          }),
+-        ),
+-        numbers: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            number: stringToNumber,
+-          }),
+-        ),
+-        dates: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            date: z.string(),
+-          }),
+-        ),
+-        passwords: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            password: z.string(),
+-          }),
+-        ),
+-        multilineTexts: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            multilineText: z.string(),
+-          }),
+-        ),
+-        texts: z.array(
+-          z.object({
+-            fieldEntityId: stringToNumber,
+-            text: z.string(),
+-          }),
+-        ),
+-      }),
+-    })
+-    .optional(),
+-  formFields: z.object({
+-    checkboxes: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        fieldValueEntityIds: z.array(stringToNumber),
+-      }),
+-    ),
+-    multipleChoices: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        fieldValueEntityId: stringToNumber,
+-      }),
+-    ),
+-    numbers: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        number: stringToNumber,
+-      }),
+-    ),
+-    dates: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        date: z.string(),
+-      }),
+-    ),
+-    passwords: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        password: z.string(),
+-      }),
+-    ),
+-    multilineTexts: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        multilineText: z.string(),
+-      }),
+-    ),
+-    texts: z.array(
+-      z.object({
+-        fieldEntityId: stringToNumber,
+-        text: z.string(),
+-      }),
+-    ),
+-  }),
+-});
+-
+-function parseRegisterCustomerInput(
+-  value: Record<string, string | number | string[] | undefined>,
+-  fields: Array<Field | FieldGroup<Field>>,
+-): VariablesOf<typeof RegisterCustomerMutation>['input'] {
+-  const customFields = fields
+-    .flatMap((f) => (Array.isArray(f) ? f : [f]))
+-    .filter(
+-      (field) =>
+-        ![
+-          String(FieldNameToFieldId.email),
+-          String(FieldNameToFieldId.password),
+-          String(FieldNameToFieldId.confirmPassword),
+-          String(FieldNameToFieldId.firstName),
+-          String(FieldNameToFieldId.lastName),
+-          String(FieldNameToFieldId.address1),
+-          String(FieldNameToFieldId.address2),
+-          String(FieldNameToFieldId.city),
+-          String(FieldNameToFieldId.company),
+-          String(FieldNameToFieldId.countryCode),
+-          String(FieldNameToFieldId.stateOrProvince),
+-          String(FieldNameToFieldId.phone),
+-          String(FieldNameToFieldId.postalCode),
+-        ].includes(field.name),
+-    );
+-
+-  const customAddressFields = customFields.filter((field) =>
+-    field.name.startsWith(ADDRESS_FIELDS_NAME_PREFIX),
+-  );
+-  const customCustomerFields = customFields.filter((field) =>
+-    field.name.startsWith(CUSTOMER_FIELDS_NAME_PREFIX),
+-  );
+-
+-  const mappedInput = {
+-    firstName: value.firstName,
+-    lastName: value.lastName,
+-    email: value.email,
+-    password: value.password,
+-    phone: value.phone,
+-    company: value.company,
+-    address: {
+-      firstName: value.firstName,
+-      lastName: value.lastName,
+-      address1: value.address1,
+-      address2: value.address2,
+-      city: value.city,
+-      company: value.company,
+-      countryCode: value.countryCode,
+-      stateOrProvince: value.stateOrProvince,
+-      phone: value.phone,
+-      postalCode: value.postalCode,
+-      formFields: {
+-        checkboxes: customAddressFields
+-          .filter((field) => ['checkbox-group'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => {
+-            return {
+-              fieldEntityId: field.id,
+-              fieldValueEntityIds: Array.isArray(value[field.name])
+-                ? value[field.name]
+-                : [value[field.name]],
+-            };
+-          }),
+-        multipleChoices: customAddressFields
+-          .filter((field) => ['radio-group', 'button-radio-group'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => {
+-            return {
+-              fieldEntityId: field.id,
+-              fieldValueEntityId: value[field.name],
+-            };
+-          }),
+-        numbers: customAddressFields
+-          .filter((field) => ['number'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => {
+-            return {
+-              fieldEntityId: field.id,
+-              number: value[field.name],
+-            };
+-          }),
+-        dates: customAddressFields
+-          .filter((field) => ['date'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => {
+-            return {
+-              fieldEntityId: field.id,
+-              date: new Date(String(value[field.name])).toISOString(),
+-            };
+-          }),
+-        passwords: customAddressFields
+-          .filter((field) => ['password'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => ({
+-            fieldEntityId: field.id,
+-            password: value[field.name],
+-          })),
+-        multilineTexts: customAddressFields
+-          .filter((field) => ['textarea'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => ({
+-            fieldEntityId: field.id,
+-            multilineText: value[field.name],
+-          })),
+-        texts: customAddressFields
+-          .filter((field) => ['text'].includes(field.type))
+-          .filter((field) => Boolean(value[field.name]))
+-          .map((field) => ({
+-            fieldEntityId: field.id,
+-            text: value[field.name],
+-          })),
+-      },
+-    },
+-    formFields: {
+-      checkboxes: customCustomerFields
+-        .filter((field) => ['checkbox-group'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => {
+-          return {
+-            fieldEntityId: field.id,
+-            fieldValueEntityIds: Array.isArray(value[field.name])
+-              ? value[field.name]
+-              : [value[field.name]],
+-          };
+-        }),
+-      multipleChoices: customCustomerFields
+-        .filter((field) => ['radio-group', 'button-radio-group'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => {
+-          return {
+-            fieldEntityId: field.id,
+-            fieldValueEntityId: value[field.name],
+-          };
+-        }),
+-      numbers: customCustomerFields
+-        .filter((field) => ['number'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => {
+-          return {
+-            fieldEntityId: field.id,
+-            number: value[field.name],
+-          };
+-        }),
+-      dates: customCustomerFields
+-        .filter((field) => ['date'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => {
+-          return {
+-            fieldEntityId: field.id,
+-            date: new Date(String(value[field.name])).toISOString(),
+-          };
+-        }),
+-      passwords: customCustomerFields
+-        .filter((field) => ['password'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => ({
+-          fieldEntityId: field.id,
+-          password: value[field.name],
+-        })),
+-      multilineTexts: customCustomerFields
+-        .filter((field) => ['textarea'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => ({
+-          fieldEntityId: field.id,
+-          multilineText: value[field.name],
+-        })),
+-      texts: customCustomerFields
+-        .filter((field) => ['text'].includes(field.type))
+-        .filter((field) => Boolean(value[field.name]))
+-        .map((field) => ({
+-          fieldEntityId: field.id,
+-          text: value[field.name],
+-        })),
+-    },
+-  };
+-
+-  return inputSchema.parse(mappedInput);
+-}
+-
+-export async function registerCustomer<F extends Field>(
+-  prevState: { lastResult: SubmissionResult | null; fields: Array<F | FieldGroup<F>> },
+-  formData: FormData,
+-) {
+-  const t = await getTranslations('Auth.Register');
+-  const locale = await getLocale();
+-  const cartId = await getCartId();
+-
+-  const submission = parseWithZod(formData, { schema: schema(prevState.fields) });
+-
+-  if (submission.status !== 'success') {
+-    return {
+-      lastResult: submission.reply(),
+-      fields: prevState.fields,
+-    };
+-  }
+-
+-  try {
+-    const input = parseRegisterCustomerInput(submission.value, prevState.fields);
+-    const response = await client.fetch({
+-      document: RegisterCustomerMutation,
+-      variables: {
+-        input,
+-        // ...(recaptchaToken && { reCaptchaV2: { token: recaptchaToken } }),
+-      },
+-      fetchOptions: { cache: 'no-store' },
+-    });
+-
+-    const result = response.data.customer.registerCustomer;
+-
+-    if (result.errors.length > 0) {
+-      return {
+-        lastResult: submission.reply({
+-          formErrors: response.data.customer.registerCustomer.errors.map((error) => error.message),
+-        }),
+-        fields: prevState.fields,
+-      };
+-    }
+-
+-    await signIn('password', {
+-      email: input.email,
+-      password: input.password,
+-      cartId,
+-      // We want to use next/navigation for the redirect as it
+-      // follows basePath and trailing slash configurations.
+-      redirect: false,
+-    });
+-  } catch (error) {
+-    // eslint-disable-next-line no-console
+-    console.error(error);
+-
+-    if (error instanceof BigCommerceGQLError) {
+-      return {
+-        lastResult: submission.reply({
+-          formErrors: error.errors.map(({ message }) => message),
+-        }),
+-        fields: prevState.fields,
+-      };
+-    }
+-
+-    if (error instanceof Error) {
+-      return {
+-        lastResult: submission.reply({ formErrors: [error.message] }),
+-        fields: prevState.fields,
+-      };
+-    }
+-
+-    return {
+-      lastResult: submission.reply({ formErrors: [t('somethingWentWrong')] }),
+-      fields: prevState.fields,
+-    };
+-  }
+-
+-  return redirect({ href: '/account/orders', locale });
+-}
+diff --git a/core/app/[locale]/(default)/(auth)/register/page-data.ts b/core/app/[locale]/(default)/(auth)/register/page-data.ts
+deleted file mode 100644
+index 08d8e859..00000000
+--- a/core/app/[locale]/(default)/(auth)/register/page-data.ts
++++ /dev/null
+@@ -1,91 +0,0 @@
+-import { cache } from 'react';
+-
+-import { getSessionCustomerAccessToken } from '~/auth';
+-import { client } from '~/client';
+-import { graphql, VariablesOf } from '~/client/graphql';
+-import { FormFieldsFragment } from '~/data-transformers/form-field-transformer/fragment';
+-import { bypassReCaptcha } from '~/lib/bypass-recaptcha';
+-
+-const RegisterCustomerQuery = graphql(
+-  `
+-    query RegisterCustomerQuery(
+-      $customerFilters: FormFieldFiltersInput
+-      $customerSortBy: FormFieldSortInput
+-      $addressFilters: FormFieldFiltersInput
+-      $addressSortBy: FormFieldSortInput
+-    ) {
+-      site {
+-        settings {
+-          formFields {
+-            customer(filters: $customerFilters, sortBy: $customerSortBy) {
+-              ...FormFieldsFragment
+-            }
+-            shippingAddress(filters: $addressFilters, sortBy: $addressSortBy) {
+-              ...FormFieldsFragment
+-            }
+-          }
+-        }
+-        settings {
+-          reCaptcha {
+-            isEnabledOnStorefront
+-            siteKey
+-          }
+-        }
+-      }
+-      geography {
+-        countries {
+-          code
+-          name
+-        }
+-      }
+-    }
+-  `,
+-  [FormFieldsFragment],
+-);
+-
+-type Variables = VariablesOf<typeof RegisterCustomerQuery>;
+-
+-interface Props {
+-  address?: {
+-    filters?: Variables['addressFilters'];
+-    sortBy?: Variables['addressSortBy'];
+-  };
+-
+-  customer?: {
+-    filters?: Variables['customerFilters'];
+-    sortBy?: Variables['customerSortBy'];
+-  };
+-}
+-
+-export const getRegisterCustomerQuery = cache(async ({ address, customer }: Props) => {
+-  const customerAccessToken = await getSessionCustomerAccessToken();
+-
+-  const response = await client.fetch({
+-    document: RegisterCustomerQuery,
+-    variables: {
+-      addressFilters: address?.filters,
+-      addressSortBy: address?.sortBy,
+-      customerFilters: customer?.filters,
+-      customerSortBy: customer?.sortBy,
+-    },
+-    fetchOptions: { cache: 'no-store' },
+-    customerAccessToken,
+-  });
+-
+-  const addressFields = response.data.site.settings?.formFields.shippingAddress;
+-  const customerFields = response.data.site.settings?.formFields.customer;
+-  const countries = response.data.geography.countries;
+-
+-  const reCaptchaSettings = await bypassReCaptcha(response.data.site.settings?.reCaptcha);
+-
+-  if (!addressFields || !customerFields) {
+-    return null;
+-  }
+-
+-  return {
+-    addressFields,
+-    customerFields,
+-    reCaptchaSettings,
+-    countries,
+-  };
+-});
+diff --git a/core/app/[locale]/(default)/(auth)/register/page.tsx b/core/app/[locale]/(default)/(auth)/register/page.tsx
+deleted file mode 100644
+index 9bc4b03d..00000000
+--- a/core/app/[locale]/(default)/(auth)/register/page.tsx
++++ /dev/null
+@@ -1,107 +0,0 @@
+-import { Metadata } from 'next';
+-import { notFound } from 'next/navigation';
+-import { getTranslations, setRequestLocale } from 'next-intl/server';
+-
+-// TODO: Add recaptcha token
+-// import { bypassReCaptcha } from '~/lib/bypass-recaptcha';
+-
+-import { DynamicFormSection } from '@/vibes/soul/sections/dynamic-form-section';
+-import {
+-  formFieldTransformer,
+-  injectCountryCodeOptions,
+-} from '~/data-transformers/form-field-transformer';
+-import {
+-  CUSTOMER_FIELDS_TO_EXCLUDE,
+-  REGISTER_CUSTOMER_FORM_LAYOUT,
+-  transformFieldsToLayout,
+-} from '~/data-transformers/form-field-transformer/utils';
+-import { exists } from '~/lib/utils';
+-
+-import { ADDRESS_FIELDS_NAME_PREFIX, CUSTOMER_FIELDS_NAME_PREFIX } from './_actions/prefixes';
+-import { registerCustomer } from './_actions/register-customer';
+-import { getRegisterCustomerQuery } from './page-data';
+-
+-interface Props {
+-  params: Promise<{ locale: string }>;
+-}
+-
+-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+-  const { locale } = await params;
+-
+-  const t = await getTranslations({ locale, namespace: 'Auth.Register' });
+-
+-  return {
+-    title: t('title'),
+-  };
+-}
+-
+-export default async function Register({ params }: Props) {
+-  const { locale } = await params;
+-
+-  setRequestLocale(locale);
+-
+-  const t = await getTranslations('Auth.Register');
+-
+-  const registerCustomerData = await getRegisterCustomerQuery({
+-    address: { sortBy: 'SORT_ORDER' },
+-    customer: { sortBy: 'SORT_ORDER' },
+-  });
+-
+-  if (!registerCustomerData) {
+-    notFound();
+-  }
+-
+-  const { addressFields, customerFields, countries } = registerCustomerData;
+-  // const reCaptcha = await bypassReCaptcha(reCaptchaSettings);
+-
+-  const fields = transformFieldsToLayout(
+-    [
+-      ...addressFields.map((field) => {
+-        if (!field.isBuiltIn) {
+-          return {
+-            ...field,
+-            name: `${ADDRESS_FIELDS_NAME_PREFIX}${field.label}`,
+-          };
+-        }
+-
+-        return field;
+-      }),
+-      ...customerFields.map((field) => {
+-        if (!field.isBuiltIn) {
+-          return {
+-            ...field,
+-            name: `${CUSTOMER_FIELDS_NAME_PREFIX}${field.label}`,
+-          };
+-        }
+-
+-        return field;
+-      }),
+-    ].filter((field) => !CUSTOMER_FIELDS_TO_EXCLUDE.includes(field.entityId)),
+-    REGISTER_CUSTOMER_FORM_LAYOUT,
+-  )
+-    .map((field) => {
+-      if (Array.isArray(field)) {
+-        return field.map(formFieldTransformer).filter(exists);
+-      }
+-
+-      return formFieldTransformer(field);
+-    })
+-    .filter(exists)
+-    .map((field) => {
+-      if (Array.isArray(field)) {
+-        return field.map((f) => injectCountryCodeOptions(f, countries ?? []));
+-      }
+-
+-      return injectCountryCodeOptions(field, countries ?? []);
+-    })
+-    .filter(exists);
+-
+-  return (
+-    <DynamicFormSection
+-      action={registerCustomer}
+-      fields={fields}
+-      submitLabel={t('cta')}
+-      title={t('heading')}
+-    />
+-  );
+-}
+diff --git a/core/app/[locale]/(default)/(auth)/register/route.ts b/core/app/[locale]/(default)/(auth)/register/route.ts
+new file mode 100644
+index 00000000..88febe19
+--- /dev/null
++++ b/core/app/[locale]/(default)/(auth)/register/route.ts
+@@ -0,0 +1,9 @@
++import { getLocale } from 'next-intl/server';
++
++import { redirect } from '~/i18n/routing';
++
++export const GET = async () => {
++  const locale = await getLocale();
++
++  redirect({ href: '/?section=register', locale });
++};
+diff --git a/core/app/[locale]/(default)/cart/page.tsx b/core/app/[locale]/(default)/cart/page.tsx
+index 0dd0d404..bf7e3e8d 100644
+--- a/core/app/[locale]/(default)/cart/page.tsx
++++ b/core/app/[locale]/(default)/cart/page.tsx
+@@ -157,6 +157,7 @@ export default async function Cart({ params }: Props) {
+       <CartAnalyticsProvider data={Streamable.from(() => getAnalyticsData(cartId))}>
+         <CartComponent
+           cart={{
++            id: cartId,
+             lineItems: formattedLineItems,
+             total: format.number(checkout?.grandTotal?.value || 0, {
+               style: 'currency',
+diff --git a/core/app/[locale]/layout.tsx b/core/app/[locale]/layout.tsx
+index bff12071..2cd58889 100644
+--- a/core/app/[locale]/layout.tsx
++++ b/core/app/[locale]/layout.tsx
+@@ -13,6 +13,7 @@ import '../../globals.css';
+ import { fonts } from '~/app/fonts';
+ import { CookieNotifications } from '~/app/notifications';
+ import { Providers } from '~/app/providers';
++import { B2BLoader } from '~/b2b/loader';
+ import { client } from '~/client';
+ import { graphql } from '~/client/graphql';
+ import { revalidate } from '~/client/revalidate-target';
+@@ -121,6 +122,7 @@ export default async function RootLayout({ params, children }: Props) {
+               </Providers>
+             </AnalyticsProvider>
+           </NuqsAdapter>
++          <B2BLoader />
+         </NextIntlClientProvider>
+         <VercelComponents />
+         <ContainerQueryPolyfill />
+diff --git a/core/auth/index.ts b/core/auth/index.ts
+index bf70c6ff..e7aca100 100644
+--- a/core/auth/index.ts
++++ b/core/auth/index.ts
+@@ -6,6 +6,7 @@ import { getTranslations } from 'next-intl/server';
+ import { z } from 'zod';
+ 
+ import { anonymousSignIn, clearAnonymousSession } from '~/auth/anonymous-session';
++import { loginWithB2B } from '~/b2b/client';
+ import { client } from '~/client';
+ import { graphql } from '~/client/graphql';
+ import { clearCartId, setCartId } from '~/lib/cart';
+@@ -16,6 +17,7 @@ const LoginMutation = graphql(`
+     login(email: $email, password: $password, guestCartEntityId: $cartEntityId) {
+       customerAccessToken {
+         value
++        expiresAt
+       }
+       customer {
+         entityId
+@@ -35,6 +37,7 @@ const LoginWithTokenMutation = graphql(`
+     loginWithCustomerLoginJwt(jwt: $jwt, guestCartEntityId: $cartEntityId) {
+       customerAccessToken {
+         value
++        expiresAt
+       }
+       customer {
+         entityId
+@@ -124,6 +127,12 @@ async function loginWithPassword(credentials: unknown): Promise<User | null> {
+   }
+ 
+   await handleLoginCart(cartId, result.cart?.entityId);
++
++  const b2bToken = await loginWithB2B({
++    customerId: result.customer.entityId,
++    customerAccessToken: result.customerAccessToken,
++  });
++
+   await clearAnonymousSession();
+ 
+   return {
+@@ -131,6 +140,7 @@ async function loginWithPassword(credentials: unknown): Promise<User | null> {
+     email: result.customer.email,
+     customerAccessToken: result.customerAccessToken.value,
+     cartId: result.cart?.entityId,
++    b2bToken,
+   };
+ }
+ 
+@@ -160,6 +170,12 @@ async function loginWithJwt(credentials: unknown): Promise<User | null> {
+   }
+ 
+   await handleLoginCart(cartId, result.cart?.entityId);
++
++  const b2bToken = await loginWithB2B({
++    customerId: result.customer.entityId,
++    customerAccessToken: result.customerAccessToken,
++  });
++
+   await clearAnonymousSession();
+ 
+   return {
+@@ -168,6 +184,7 @@ async function loginWithJwt(credentials: unknown): Promise<User | null> {
+     customerAccessToken: result.customerAccessToken.value,
+     impersonatorId,
+     cartId: result.cart?.entityId,
++    b2bToken,
+   };
+ }
+ 
+@@ -197,6 +214,12 @@ const config = {
+         };
+       }
+ 
++      // user can actually be undefined
++      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
++      if (user?.b2bToken) {
++        token.b2bToken = user.b2bToken;
++      }
++
+       // user can actually be undefined
+       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+       if (user?.cartId) {
+@@ -228,6 +251,10 @@ const config = {
+         session.user.cartId = token.user.cartId;
+       }
+ 
++      if (token.b2bToken) {
++        session.b2bToken = token.b2bToken;
++      }
++
+       return session;
+     },
+   },
+diff --git a/core/auth/types.ts b/core/auth/types.ts
+index 5cdf427e..a5e8508f 100644
+--- a/core/auth/types.ts
++++ b/core/auth/types.ts
+@@ -3,6 +3,7 @@ import { User } from 'next-auth';
+ declare module 'next-auth' {
+   interface Session {
+     user?: User;
++    b2bToken?: string;
+   }
+ 
+   interface User {
+@@ -11,6 +12,7 @@ declare module 'next-auth' {
+     cartId?: string | null;
+     customerAccessToken?: string;
+     impersonatorId?: string | null;
++    b2bToken?: string;
+   }
+ 
+   interface AnonymousUser {
+@@ -22,5 +24,6 @@ declare module 'next-auth/jwt' {
+   interface JWT {
+     id?: string;
+     user?: User;
++    b2bToken?: string;
+   }
+ }
+diff --git a/core/b2b/client.ts b/core/b2b/client.ts
+new file mode 100644
+index 00000000..2edf1d43
+--- /dev/null
++++ b/core/b2b/client.ts
+@@ -0,0 +1,57 @@
++import { z } from 'zod';
++
++interface LoginWithB2BParams {
++  customerId: number;
++  customerAccessToken: {
++    value: string;
++    expiresAt: string;
++  };
++}
++
++const ENV = z
++  .object({
++    env: z.object({
++      B2B_API_TOKEN: z.string(),
++      BIGCOMMERCE_CHANNEL_ID: z.string(),
++      B2B_API_HOST: z.string().default('https://api-b2b.bigcommerce.com'),
++    }),
++  })
++  .transform(({ env }) => env);
++
++const ErrorResponse = z.object({
++  detail: z.string().default('Unknown error'),
++});
++
++const B2BTokenResponseSchema = z.object({
++  data: z.object({
++    token: z.array(z.string()).nonempty({ message: 'No token returned from B2B API' }),
++  }),
++});
++
++export async function loginWithB2B({ customerId, customerAccessToken }: LoginWithB2BParams) {
++  const { B2B_API_HOST, B2B_API_TOKEN, BIGCOMMERCE_CHANNEL_ID } = ENV.parse(process);
++
++  const response = await fetch(`${B2B_API_HOST}/api/io/auth/customers/storefront`, {
++    method: 'POST',
++    headers: {
++      Accept: 'application/json',
++      'Content-Type': 'application/json',
++      authToken: B2B_API_TOKEN,
++    },
++    body: JSON.stringify({
++      channelId: BIGCOMMERCE_CHANNEL_ID,
++      customerId,
++      customerAccessToken,
++    }),
++  });
++
++  if (!response.ok) {
++    const errorMessage = ErrorResponse.parse(await response.json()).detail;
++
++    throw new Error(
++      `Failed to login with ${B2B_API_HOST}. Status: ${response.status}, Message: ${errorMessage}`,
++    );
++  }
++
++  return B2BTokenResponseSchema.parse(await response.json()).data.token[0];
++}
+diff --git a/core/b2b/loader.tsx b/core/b2b/loader.tsx
+new file mode 100644
+index 00000000..58db9614
+--- /dev/null
++++ b/core/b2b/loader.tsx
+@@ -0,0 +1,48 @@
++import { z } from 'zod';
++
++import { auth } from '~/auth';
++
++import { ScriptDev } from './script-dev';
++import { ScriptProduction } from './script-production';
++
++const EnvironmentSchema = z.object({
++  BIGCOMMERCE_STORE_HASH: z.string({ message: 'BIGCOMMERCE_STORE_HASH is required' }),
++  BIGCOMMERCE_CHANNEL_ID: z.string({ message: 'BIGCOMMERCE_CHANNEL_ID is required' }),
++  LOCAL_BUYER_PORTAL_HOST: z.string().url().optional(),
++  STAGING_B2B_CDN_ORIGIN: z.string().optional(),
++});
++
++export async function B2BLoader() {
++  const {
++    BIGCOMMERCE_STORE_HASH,
++    BIGCOMMERCE_CHANNEL_ID,
++    LOCAL_BUYER_PORTAL_HOST,
++    STAGING_B2B_CDN_ORIGIN,
++  } = EnvironmentSchema.parse(process.env);
++
++  const session = await auth();
++
++  if (LOCAL_BUYER_PORTAL_HOST) {
++    return (
++      <ScriptDev
++        cartId={session?.user?.cartId ?? undefined}
++        channelId={BIGCOMMERCE_CHANNEL_ID}
++        hostname={LOCAL_BUYER_PORTAL_HOST}
++        storeHash={BIGCOMMERCE_STORE_HASH}
++        token={session?.b2bToken}
++      />
++    );
++  }
++
++  const environment = STAGING_B2B_CDN_ORIGIN === 'true' ? 'staging' : 'production';
++
++  return (
++    <ScriptProduction
++      cartId={session?.user?.cartId}
++      channelId={BIGCOMMERCE_CHANNEL_ID}
++      environment={environment}
++      storeHash={BIGCOMMERCE_STORE_HASH}
++      token={session?.b2bToken}
++    />
++  );
++}
+diff --git a/core/b2b/map-to-b2b-product-options.tsx b/core/b2b/map-to-b2b-product-options.tsx
+new file mode 100644
+index 00000000..1bd223ce
+--- /dev/null
++++ b/core/b2b/map-to-b2b-product-options.tsx
+@@ -0,0 +1,63 @@
++import { B2BProductOption } from '~/b2b/types';
++
++import { Field } from '../vibes/soul/sections/product-detail/schema';
++
++interface ProductOption {
++  field: Field;
++  value?: string | number;
++}
++
++export function mapToB2BProductOptions({ field, value }: ProductOption): B2BProductOption {
++  const fieldId = Number(field.name);
++
++  const baseOption: B2BProductOption = {
++    optionEntityId: fieldId,
++    optionValueEntityId: 0, // Will be set based on type
++    entityId: fieldId,
++    valueEntityId: 0, // Will be set based on type
++    text: '',
++    number: 0,
++    date: { utc: '' },
++  };
++
++  switch (field.type) {
++    case 'text':
++    case 'textarea':
++      return {
++        ...baseOption,
++        text: String(value || ''),
++      };
++
++    case 'number':
++      return {
++        ...baseOption,
++        number: Number(value || 0),
++      };
++
++    case 'date':
++      return {
++        ...baseOption,
++        date: {
++          utc: value ? new Date(value).toISOString() : '',
++        },
++      };
++
++    case 'button-radio-group':
++    case 'swatch-radio-group':
++    case 'radio-group':
++    case 'card-radio-group':
++    case 'select': {
++      const selectedOption = field.options.find((opt) => opt.value === String(value));
++
++      return {
++        ...baseOption,
++        optionValueEntityId: Number(selectedOption?.value ?? 0),
++        valueEntityId: Number(selectedOption?.value ?? 0),
++        text: selectedOption?.label || '',
++      };
++    }
++
++    default:
++      return baseOption;
++  }
++}
+diff --git a/core/b2b/script-dev.tsx b/core/b2b/script-dev.tsx
+new file mode 100644
+index 00000000..e01f9822
+--- /dev/null
++++ b/core/b2b/script-dev.tsx
+@@ -0,0 +1,56 @@
++/* eslint-disable @next/next/no-before-interactive-script-outside-document */
++'use client';
++
++import Script from 'next/script';
++
++import { useB2BAuth } from './use-b2b-auth';
++import { useB2BCart } from './use-b2b-cart';
++
++interface DevProps {
++  storeHash: string;
++  channelId: string;
++  hostname: string;
++  token?: string;
++  cartId?: string;
++}
++
++export function ScriptDev({ cartId, hostname, storeHash, channelId, token }: DevProps) {
++  useB2BAuth(token);
++  useB2BCart(cartId);
++
++  const src = `${hostname}/src/main.ts`;
++
++  return (
++    <>
++      <Script id="b2b-react-refresh" strategy="beforeInteractive" type="module">
++        {`
++              import RefreshRuntime from '${hostname}/@react-refresh'
++              RefreshRuntime.injectIntoGlobalHook(window)
++              window.$RefreshReg$ = () => {}
++              window.$RefreshSig$ = () => (type) => type
++              window.__vite_plugin_react_preamble_installed__ = true
++          `}
++      </Script>
++      <Script
++        id="b2b-vite-client"
++        src={`${hostname}/@vite/client`}
++        strategy="beforeInteractive"
++        type="module"
++      />
++
++      <Script id="b2b-config">
++        {`
++              window.B3 = {
++                setting: {
++                  store_hash: '${storeHash}',
++                  channel_id: ${channelId},
++                  platform: 'catalyst',
++                  cart_url: '/cart',
++                },
++              };
++          `}
++      </Script>
++      <Script data-channelid={storeHash} data-storehash={channelId} src={src} type="module" />
++    </>
++  );
++}
+diff --git a/core/b2b/script-production.tsx b/core/b2b/script-production.tsx
+new file mode 100644
+index 00000000..4e4c4163
+--- /dev/null
++++ b/core/b2b/script-production.tsx
+@@ -0,0 +1,43 @@
++'use client';
++
++import Script from 'next/script';
++
++import { useB2BAuth } from './use-b2b-auth';
++import { useB2BCart } from './use-b2b-cart';
++
++interface Props {
++  storeHash: string;
++  channelId: string;
++  token?: string;
++  environment: 'staging' | 'production';
++  cartId?: string | null;
++}
++
++export function ScriptProduction({ cartId, storeHash, channelId, token, environment }: Props) {
++  useB2BAuth(token);
++  useB2BCart(cartId);
++
++  return (
++    <>
++      <Script id="b2b-config">
++        {`
++            window.B3 = {
++              setting: {
++                store_hash: '${storeHash}',
++                channel_id: ${channelId},
++                platform: 'catalyst',
++                cart_url: '/cart',
++              }
++            }
++        `}
++      </Script>
++      <Script
++        data-channelid={channelId}
++        data-environment={environment}
++        data-storehash={storeHash}
++        src={`https://cdn.bundleb2b.net/b2b/${environment}/storefront/headless.js`}
++        type="module"
++      />
++    </>
++  );
++}
+diff --git a/core/b2b/server-login.ts b/core/b2b/server-login.ts
+new file mode 100644
+index 00000000..92544846
+--- /dev/null
++++ b/core/b2b/server-login.ts
+@@ -0,0 +1,37 @@
++'use server';
++
++import { BigCommerceGQLError } from '@bigcommerce/catalyst-client';
++import { AuthError } from 'next-auth';
++import { getTranslations } from 'next-intl/server';
++
++import { signIn } from '~/auth';
++
++export const login = async (email: string, password: string) => {
++  const t = await getTranslations('Auth.Login');
++
++  try {
++    await signIn('password', {
++      email,
++      password,
++      redirect: false,
++    });
++  } catch (error) {
++    // eslint-disable-next-line no-console
++    console.error(error);
++
++    if (error instanceof BigCommerceGQLError) {
++      return error.errors.map(({ message }) => message).join(', ');
++    }
++
++    if (
++      error instanceof AuthError &&
++      error.name === 'CallbackRouteError' &&
++      error.cause &&
++      error.cause.err?.message.includes('Invalid credentials')
++    ) {
++      return t('invalidCredentials');
++    }
++
++    return t('somethingWentWrong');
++  }
++};
+diff --git a/core/b2b/types.ts b/core/b2b/types.ts
+new file mode 100644
+index 00000000..e48029be
+--- /dev/null
++++ b/core/b2b/types.ts
+@@ -0,0 +1,91 @@
++export interface B2BProductOption {
++  optionEntityId: number;
++  optionValueEntityId: number;
++  entityId: number;
++  valueEntityId: number;
++  text: string;
++  number: number;
++  date?: {
++    utc: string;
++  };
++}
++
++export interface QuoteConfigProps {
++  key: string;
++  value: string;
++  extraFields: Record<string, string>;
++}
++
++export enum B2BRole {
++  ADMIN = 0,
++  SENIOR_BUYER = 1,
++  JUNIOR_BUYER = 2,
++  SUPER_ADMIN = 3,
++  SUPER_ADMIN_BEFORE_AGENCY = 4,
++  CUSTOM_ROLE = 5,
++  B2C = 99,
++  GUEST = 100,
++}
++
++export interface B2BProfile {
++  id: number;
++  phoneNumber: string;
++  firstName: string;
++  lastName: string;
++  emailAddress: string;
++  customerGroupId: number;
++  role: number;
++  userType: number;
++  loginType: number;
++  companyRoleName: string;
++}
++
++interface LineItem {
++  productEntityId: number;
++  quantity?: number;
++  selectedOptions?: B2BProductOption[];
++}
++
++declare global {
++  interface Window {
++    b2b?: {
++      utils?: {
++        openPage: (page: string) => void;
++        user: {
++          loginWithB2BStorefrontToken: (token: string) => Promise<void>;
++          getProfile: () => B2BProfile;
++          getB2BToken: () => string;
++        };
++        quote?: {
++          getQuoteConfigs: () => QuoteConfigProps[];
++          addProductsFromCartId: (cartId: string) => Promise<void>;
++          addProducts: (products: LineItem[]) => Promise<void>;
++        };
++        shoppingList?: {
++          addProductFromPage: (product: LineItem) => Promise<void>;
++        };
++        cart?: {
++          getEntityId: () => string;
++          setEntityId: (cartId: string) => void;
++        };
++      };
++      callbacks?: {
++        addEventListener: {
++          (
++            event: 'on-registered',
++            callback: (props: {
++              data: Record<'email' | 'password' | 'landingLoginLocation', string>;
++            }) => void,
++          ): void;
++          (event: 'on-logout', callback: (props: { data: Record<string, string> }) => void): void;
++          (event: 'on-cart-created', callback: (props: { data: { cartId: string } }) => void): void;
++        };
++        removeEventListener: (
++          event: 'on-logout' | 'on-registered' | 'on-cart-created',
++          callback: unknown,
++        ) => void;
++        dispatchEvent: (event: string) => void;
++      };
++    };
++  }
++}
+diff --git a/core/b2b/use-b2b-auth.ts b/core/b2b/use-b2b-auth.ts
+new file mode 100644
+index 00000000..f574d949
+--- /dev/null
++++ b/core/b2b/use-b2b-auth.ts
+@@ -0,0 +1,90 @@
++'use client';
++
++import { useSearchParams } from 'next/navigation';
++import { signOut } from 'next-auth/react';
++import { useEffect } from 'react';
++
++import { toast } from '@/vibes/soul/primitives/toaster';
++
++import { login } from './server-login';
++import { useSDK } from './use-b2b-sdk';
++
++const handleRegistered = ({ data: { email, password, landingLoginLocation } }: Data) => {
++  void login(email, password).then((error) => {
++    if (error) {
++      toast.error(error, {
++        dismissLabel: 'Dismiss',
++        position: 'top-right',
++      });
++
++      return;
++    }
++
++    if (landingLoginLocation === '0') {
++      window.location.href = '/';
++    } else {
++      window.location.href = '/?section=orders';
++    }
++  });
++};
++
++const handleLogout = () => {
++  void signOut({
++    redirect: true,
++    redirectTo: '/login',
++  }).catch((error: unknown) => {
++    // eslint-disable-next-line no-console
++    console.error('Failed to sign out:', error);
++  });
++};
++
++const sections: Record<string, string> = {
++  register: 'REGISTER_ACCOUNT',
++  orders: 'ORDERS',
++};
++
++interface Data {
++  data: {
++    email: string;
++    password: string;
++    landingLoginLocation: string;
++  };
++}
++
++export function useB2BAuth(token?: string) {
++  const searchParams = useSearchParams();
++  const sdk = useSDK();
++
++  useEffect(() => {
++    sdk?.callbacks?.addEventListener('on-logout', handleLogout);
++    sdk?.callbacks?.addEventListener('on-registered', handleRegistered);
++
++    return () => {
++      sdk?.callbacks?.removeEventListener('on-logout', handleLogout);
++      sdk?.callbacks?.removeEventListener('on-registered', handleRegistered);
++    };
++  }, [sdk]);
++
++  useEffect(() => {
++    const params = new URLSearchParams(searchParams);
++    const section = params.get('section');
++
++    if (!section || !sdk) {
++      return;
++    }
++
++    if (sections[section]) {
++      params.delete('section');
++      window.history.replaceState({}, '', `${window.location.pathname}${params}`);
++      sdk.utils?.openPage(sections[section]);
++    }
++  }, [searchParams, sdk]);
++
++  useEffect(() => {
++    if (sdk && token && token !== sdk.utils?.user.getB2BToken()) {
++      void sdk.utils?.user.loginWithB2BStorefrontToken(token);
++    }
++  }, [sdk, token]);
++
++  return null;
++}
+diff --git a/core/b2b/use-b2b-cart.ts b/core/b2b/use-b2b-cart.ts
+new file mode 100644
+index 00000000..3f1b2a47
+--- /dev/null
++++ b/core/b2b/use-b2b-cart.ts
+@@ -0,0 +1,43 @@
++'use client';
++
++import { useCallback, useEffect } from 'react';
++
++import { useRouter } from '~/i18n/routing';
++import { setCartId } from '~/lib/cart';
++
++import { useSDK } from './use-b2b-sdk';
++
++export function useB2BCart(id?: string | null) {
++  const router = useRouter();
++  const sdk = useSDK();
++
++  const handleCartCreated = useCallback(
++    ({ data: { cartId = '' } }) => {
++      void setCartId(cartId)
++        .then(() => {
++          router.refresh();
++        })
++        .catch((error: unknown) => {
++          // eslint-disable-next-line no-console
++          console.error(error);
++        });
++    },
++    [router],
++  );
++
++  useEffect(() => {
++    sdk?.callbacks?.addEventListener('on-cart-created', handleCartCreated);
++
++    return () => {
++      sdk?.callbacks?.removeEventListener('on-cart-created', handleCartCreated);
++    };
++  }, [sdk, handleCartCreated]);
++
++  useEffect(() => {
++    if (sdk && id && id !== sdk.utils?.cart?.getEntityId()) {
++      sdk.utils?.cart?.setEntityId(id);
++    }
++  }, [sdk, id]);
++
++  return null;
++}
+diff --git a/core/b2b/use-b2b-quote-enabled.ts b/core/b2b/use-b2b-quote-enabled.ts
+new file mode 100644
+index 00000000..7e0ad28e
+--- /dev/null
++++ b/core/b2b/use-b2b-quote-enabled.ts
+@@ -0,0 +1,34 @@
++'use client';
++
++import { B2BRole } from './types';
++import { useSDK } from './use-b2b-sdk';
++
++interface Config {
++  key: string;
++  value: string;
++}
++
++const isConfigEnabled = (configs: Config[], key: string): boolean => {
++  return configs.find((c) => c.key === key)?.value === '1';
++};
++
++export const useB2BQuoteEnabled = (): boolean => {
++  const sdk = useSDK();
++
++  const config = sdk?.utils?.quote?.getQuoteConfigs();
++  const role = sdk?.utils?.user.getProfile().role;
++
++  if (!config || role === undefined) {
++    return false;
++  }
++
++  if (role === B2BRole.GUEST) {
++    return isConfigEnabled(config, 'quote_for_guest');
++  }
++
++  if (role === B2BRole.B2C) {
++    return isConfigEnabled(config, 'quote_for_individual_customer');
++  }
++
++  return isConfigEnabled(config, 'quote_for_b2b');
++};
+diff --git a/core/b2b/use-b2b-sdk.ts b/core/b2b/use-b2b-sdk.ts
+new file mode 100644
+index 00000000..ef75732d
+--- /dev/null
++++ b/core/b2b/use-b2b-sdk.ts
+@@ -0,0 +1,28 @@
++'use client';
++
++import { useEffect, useState } from 'react';
++
++export const useSDK = () => {
++  const [sdk, setSdk] = useState<NonNullable<typeof window.b2b> | null>(null);
++
++  useEffect(() => {
++    const interval = setInterval(() => {
++      const getQuoteConfigs = window.b2b?.utils?.quote?.getQuoteConfigs;
++
++      if (!getQuoteConfigs) {
++        return;
++      }
++
++      if (window.b2b?.utils && getQuoteConfigs().length > 0) {
++        setSdk(window.b2b);
++        clearInterval(interval);
++      }
++    }, 100);
++
++    return () => {
++      clearInterval(interval);
++    };
++  }, []);
++
++  return sdk;
++};
+diff --git a/core/b2b/use-b2b-shopping-list-enabled.ts b/core/b2b/use-b2b-shopping-list-enabled.ts
+new file mode 100644
+index 00000000..ed609d1c
+--- /dev/null
++++ b/core/b2b/use-b2b-shopping-list-enabled.ts
+@@ -0,0 +1,33 @@
++'use client';
++
++import { B2BRole } from './types';
++import { useSDK } from './use-b2b-sdk';
++
++export const useB2bShoppingListEnabled = (): boolean => {
++  const sdk = useSDK();
++
++  const quoteConfigs = sdk?.utils?.quote?.getQuoteConfigs();
++  const role = sdk?.utils?.user.getProfile().role;
++
++  if (!quoteConfigs || role === undefined) {
++    return false;
++  }
++
++  const shoppingListConfig = quoteConfigs.find(
++    ({ key }) => key === 'shopping_list_on_product_page',
++  );
++
++  if (shoppingListConfig?.value !== '1') {
++    return false;
++  }
++
++  if (role === B2BRole.GUEST) {
++    return Boolean(shoppingListConfig.extraFields.guest);
++  }
++
++  if (role === B2BRole.B2C) {
++    return Boolean(shoppingListConfig.extraFields.b2c);
++  }
++
++  return Boolean(shoppingListConfig.extraFields.b2b);
++};
+diff --git a/core/b2b/use-product-details.tsx b/core/b2b/use-product-details.tsx
+new file mode 100644
+index 00000000..b824121a
+--- /dev/null
++++ b/core/b2b/use-product-details.tsx
+@@ -0,0 +1,76 @@
++'use client';
++
++import { useState } from 'react';
++
++import { useB2BQuoteEnabled } from '~/b2b/use-b2b-quote-enabled';
++import { useSDK } from '~/b2b/use-b2b-sdk';
++import { useB2bShoppingListEnabled } from '~/b2b/use-b2b-shopping-list-enabled';
++
++import { Field } from '../vibes/soul/sections/product-detail/schema';
++
++import { mapToB2BProductOptions } from './map-to-b2b-product-options';
++
++interface ProductOption {
++  field: Field;
++  value?: string | number;
++}
++
++interface Data {
++  productId: string;
++  quantity: number;
++  selectedOptions: ProductOption[];
++}
++
++export const useAddToQuote = () => {
++  const isQuotesEnabled = useB2BQuoteEnabled();
++  const [isAddingToQuote, setLoading] = useState(false);
++  const sdk = useSDK();
++
++  const addProductsToQuote = async ({ selectedOptions, productId, quantity }: Data) => {
++    setLoading(true);
++
++    try {
++      await sdk?.utils?.quote?.addProducts([
++        {
++          productEntityId: Number(productId),
++          quantity,
++          selectedOptions: selectedOptions.map(mapToB2BProductOptions),
++        },
++      ]);
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  return {
++    isQuotesEnabled,
++    isAddingToQuote,
++    addProductsToQuote,
++  };
++};
++
++export const useAddToShoppingList = () => {
++  const isShoppingListEnabled = useB2bShoppingListEnabled();
++  const [isAddingToShoppingList, setLoading] = useState(false);
++  const sdk = useSDK();
++
++  const addProductToShoppingList = async ({ selectedOptions, productId, quantity }: Data) => {
++    setLoading(true);
++
++    try {
++      await sdk?.utils?.shoppingList?.addProductFromPage({
++        productEntityId: Number(productId),
++        quantity,
++        selectedOptions: selectedOptions.map(mapToB2BProductOptions),
++      });
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  return {
++    isShoppingListEnabled,
++    isAddingToShoppingList,
++    addProductToShoppingList,
++  };
++};
+diff --git a/core/data-transformers/product-options-transformer.ts b/core/data-transformers/product-options-transformer.ts
+index 3c8925b8..3456f610 100644
+--- a/core/data-transformers/product-options-transformer.ts
++++ b/core/data-transformers/product-options-transformer.ts
+@@ -18,6 +18,7 @@ export const productOptionsTransformer = async (
+         switch (option.displayStyle) {
+           case 'Swatch': {
+             return {
++              id: option.entityId,
+               persist: option.isVariantOption,
+               type: 'swatch-radio-group',
+               label: option.displayName,
+@@ -32,6 +33,7 @@ export const productOptionsTransformer = async (
+                   if (value.imageUrl) {
+                     return {
+                       type: 'image',
++                      id: value.entityId,
+                       label: value.label,
+                       value: value.entityId.toString(),
+                       image: { src: value.imageUrl, alt: value.label },
+@@ -40,6 +42,7 @@ export const productOptionsTransformer = async (
+ 
+                   return {
+                     type: 'color',
++                    id: value.entityId,
+                     label: value.label,
+                     value: value.entityId.toString(),
+                     color: value.hexColors[0] ?? '',
+@@ -50,6 +53,7 @@ export const productOptionsTransformer = async (
+ 
+           case 'RectangleBoxes': {
+             return {
++              id: option.entityId,
+               persist: option.isVariantOption,
+               type: 'button-radio-group',
+               label: option.displayName,
+@@ -57,6 +61,7 @@ export const productOptionsTransformer = async (
+               name: option.entityId.toString(),
+               defaultValue: values.find((value) => value.isDefault)?.entityId.toString(),
+               options: values.map((value) => ({
++                id: value.entityId,
+                 label: value.label,
+                 value: value.entityId.toString(),
+               })),
+@@ -65,6 +70,7 @@ export const productOptionsTransformer = async (
+ 
+           case 'RadioButtons': {
+             return {
++              id: option.entityId,
+               persist: option.isVariantOption,
+               type: 'radio-group',
+               label: option.displayName,
+@@ -72,6 +78,7 @@ export const productOptionsTransformer = async (
+               name: option.entityId.toString(),
+               defaultValue: values.find((value) => value.isDefault)?.entityId.toString(),
+               options: values.map((value) => ({
++                id: value.entityId,
+                 label: value.label,
+                 value: value.entityId.toString(),
+               })),
+@@ -80,6 +87,7 @@ export const productOptionsTransformer = async (
+ 
+           case 'DropdownList': {
+             return {
++              id: option.entityId,
+               persist: option.isVariantOption,
+               type: 'select',
+               label: option.displayName,
+@@ -87,6 +95,7 @@ export const productOptionsTransformer = async (
+               name: option.entityId.toString(),
+               defaultValue: values.find((value) => value.isDefault)?.entityId.toString(),
+               options: values.map((value) => ({
++                id: value.entityId,
+                 label: value.label,
+                 value: value.entityId.toString(),
+               })),
+@@ -115,6 +124,7 @@ export const productOptionsTransformer = async (
+ 
+           case 'ProductPickListWithImages': {
+             return {
++              id: option.entityId,
+               persist: option.isVariantOption,
+               type: 'card-radio-group',
+               label: option.displayName,
+@@ -127,6 +137,7 @@ export const productOptionsTransformer = async (
+                     '__typename' in value && value.__typename === 'ProductPickListOptionValue',
+                 )
+                 .map((value) => ({
++                  id: value.entityId,
+                   label: value.label,
+                   value: value.entityId.toString(),
+                   image: {
+@@ -144,6 +155,7 @@ export const productOptionsTransformer = async (
+ 
+       if (option.__typename === 'CheckboxOption') {
+         return {
++          id: option.entityId,
+           persist: option.isVariantOption,
+           type: 'checkbox',
+           label: option.displayName,
+@@ -157,6 +169,7 @@ export const productOptionsTransformer = async (
+ 
+       if (option.__typename === 'NumberFieldOption') {
+         return {
++          id: option.entityId,
+           persist: option.isVariantOption,
+           type: 'number',
+           label: option.displayName,
+@@ -174,6 +187,7 @@ export const productOptionsTransformer = async (
+ 
+       if (option.__typename === 'MultiLineTextFieldOption') {
+         return {
++          id: option.entityId,
+           persist: option.isVariantOption,
+           type: 'textarea',
+           label: option.displayName,
+@@ -187,6 +201,7 @@ export const productOptionsTransformer = async (
+ 
+       if (option.__typename === 'TextFieldOption') {
+         return {
++          id: option.entityId,
+           persist: option.isVariantOption,
+           type: 'text',
+           label: option.displayName,
+@@ -198,6 +213,7 @@ export const productOptionsTransformer = async (
+ 
+       if (option.__typename === 'DateFieldOption') {
+         return {
++          id: option.entityId,
+           persist: option.isVariantOption,
+           type: 'date',
+           label: option.displayName,
+diff --git a/core/globals.css b/core/globals.css
+index be6765b8..38601ba9 100644
+--- a/core/globals.css
++++ b/core/globals.css
+@@ -29,4 +29,13 @@
+   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
++
++  /* B2B Buyer portal Z index variables */
++  --z-index-IFRAME: 12000;
++  --z-index-BASE: 12001;
++  --z-index-STICKY: 12002;
++  --z-index-OVERLAY: 12003;
++  --z-index-MODAL: 12005;
++  --z-index-TOOLTIP: 12004;
++  --z-index-NOTIFICATION: 12004;
+ }
+diff --git a/core/messages/en.json b/core/messages/en.json
+index 27b61847..7f9ea10e 100644
+--- a/core/messages/en.json
++++ b/core/messages/en.json
+@@ -363,6 +363,8 @@
+       "decreaseNumber": "Decrease number",
+       "thumbnail": "View image number",
+       "additionalInformation": "Additional information",
++      "addToQuote": "Add to quote",
++      "addToShoppingList": "Add to shopping list",
+       "Submit": {
+         "addToCart": "Add to cart",
+         "outOfStock": "Out of stock",
+@@ -468,6 +470,9 @@
+       "placeholder": "Enter your email",
+       "description": "Stay up to date with the latest news and offers from our store.",
+       "success": "Thank you for your interest! Newsletter feature is coming soon!"
++    },
++    "AddToQuoteButton": {
++      "addCartToQuote": "Add cart to quote"
+     }
+   }
+ }
+diff --git a/core/middleware.ts b/core/middleware.ts
+index c068579f..ef65bb97 100644
+--- a/core/middleware.ts
++++ b/core/middleware.ts
+@@ -1,6 +1,7 @@
+ import { composeMiddlewares } from './middlewares/compose-middlewares';
+ import { withAnalyticsCookies } from './middlewares/with-analytics-cookies';
+ import { withAuth } from './middlewares/with-auth';
++import { withB2B } from './middlewares/with-b2b';
+ import { withChannelId } from './middlewares/with-channel-id';
+ import { withIntl } from './middlewares/with-intl';
+ import { withRoutes } from './middlewares/with-routes';
+@@ -10,6 +11,7 @@ export const middleware = composeMiddlewares(
+   withIntl,
+   withAnalyticsCookies,
+   withChannelId,
++  withB2B,
+   withRoutes,
+ );
+ 
+diff --git a/core/middlewares/with-b2b.ts b/core/middlewares/with-b2b.ts
+new file mode 100644
+index 00000000..c29120ec
+--- /dev/null
++++ b/core/middlewares/with-b2b.ts
+@@ -0,0 +1,24 @@
++import { NextResponse } from 'next/server';
++import { Session } from 'next-auth';
++
++import { MiddlewareFactory } from './compose-middlewares';
++
++export const withB2B: MiddlewareFactory = (next) => {
++  return (request, event) => {
++    if (
++      request.auth?.b2bToken &&
++      (request.nextUrl.pathname.startsWith('/account/') ||
++        request.nextUrl.pathname.startsWith('/login'))
++    ) {
++      return NextResponse.redirect(new URL('/?section=orders', request.url));
++    }
++
++    return next(request, event);
++  };
++};
++
++declare module 'next/server' {
++  interface NextRequest {
++    auth: Session | null;
++  }
++}
+diff --git a/core/vibes/soul/sections/cart/add-cart-to-quote-button/index.tsx b/core/vibes/soul/sections/cart/add-cart-to-quote-button/index.tsx
+new file mode 100644
+index 00000000..642609c1
+--- /dev/null
++++ b/core/vibes/soul/sections/cart/add-cart-to-quote-button/index.tsx
+@@ -0,0 +1,46 @@
++'use client';
++
++import { useTranslations } from 'next-intl';
++import { useState } from 'react';
++
++import { Button } from '@/vibes/soul/primitives/button';
++import { useSDK } from '~/b2b/use-b2b-sdk';
++
++interface Props {
++  cartId: string;
++  className?: string;
++}
++
++export const AddCartToQuoteButton = ({ cartId, className }: Props) => {
++  const t = useTranslations('Components.AddToQuoteButton');
++  const [loading, setLoading] = useState(false);
++
++  const addCartToQuote = useSDK()?.utils?.quote?.addProductsFromCartId;
++
++  if (!addCartToQuote) {
++    return null;
++  }
++
++  const handleAddCartToQuote = async () => {
++    setLoading(true);
++
++    try {
++      await addCartToQuote(cartId);
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  return (
++    <Button
++      className={className}
++      loading={loading}
++      onClick={handleAddCartToQuote}
++      size="medium"
++      type="button"
++      variant="secondary"
++    >
++      {t('addCartToQuote')}
++    </Button>
++  );
++};
+diff --git a/core/vibes/soul/sections/cart/client.tsx b/core/vibes/soul/sections/cart/client.tsx
+index 6b8c4c5e..96379396 100644
+--- a/core/vibes/soul/sections/cart/client.tsx
++++ b/core/vibes/soul/sections/cart/client.tsx
+@@ -16,9 +16,11 @@ import { useFormStatus } from 'react-dom';
+ import { Button } from '@/vibes/soul/primitives/button';
+ import { toast } from '@/vibes/soul/primitives/toaster';
+ import { StickySidebarLayout } from '@/vibes/soul/sections/sticky-sidebar-layout';
++import { useB2BQuoteEnabled } from '~/b2b/use-b2b-quote-enabled';
+ import { useEvents } from '~/components/analytics/events';
+ import { Image } from '~/components/image';
+ 
++import { AddCartToQuoteButton } from './add-cart-to-quote-button';
+ import { CouponCodeForm, CouponCodeFormState } from './coupon-code-form';
+ import { cartLineItemActionFormDataSchema } from './schema';
+ import { ShippingForm, ShippingFormState } from './shipping-form';
+@@ -47,6 +49,7 @@ export interface CartState<LineItem extends CartLineItem> {
+ }
+ 
+ export interface Cart<LineItem extends CartLineItem> {
++  id?: string;
+   lineItems: LineItem[];
+   summaryItems: CartSummaryItem[];
+   total: string;
+@@ -175,6 +178,8 @@ export function CartClient<LineItem extends CartLineItem>({
+   shipping,
+ }: CartProps<LineItem>) {
+   const events = useEvents();
++  const isAddToQuoteEnabled = useB2BQuoteEnabled();
++
+   const [state, formAction] = useActionState(lineItemAction, {
+     lineItems: cart.lineItems,
+     lastResult: null,
+@@ -267,10 +272,15 @@ export function CartClient<LineItem extends CartLineItem>({
+               <dl>{cart.total}</dl>
+             </div>
+           </dl>
+-          <CheckoutButton action={checkoutAction} className="mt-4 w-full">
+-            {checkoutLabel}
+-            <ArrowRight size={20} strokeWidth={1} />
+-          </CheckoutButton>
++          <div className="flex flex-col gap-4">
++            <CheckoutButton action={checkoutAction} className="mt-4 w-full">
++              {checkoutLabel}
++              <ArrowRight size={20} strokeWidth={1} />
++            </CheckoutButton>
++            {typeof cart.id === 'string' && cart.id !== '' && isAddToQuoteEnabled && (
++              <AddCartToQuoteButton cartId={cart.id} />
++            )}
++          </div>
+         </div>
+       }
+       sidebarPosition="after"
+diff --git a/core/vibes/soul/sections/product-detail/product-detail-form.tsx b/core/vibes/soul/sections/product-detail/product-detail-form.tsx
+index aae57263..6b38cf2a 100644
+--- a/core/vibes/soul/sections/product-detail/product-detail-form.tsx
++++ b/core/vibes/soul/sections/product-detail/product-detail-form.tsx
+@@ -10,6 +10,7 @@ import {
+   useInputControl,
+ } from '@conform-to/react';
+ import { getZodConstraint, parseWithZod } from '@conform-to/zod';
++import { useTranslations } from 'next-intl';
+ import { createSerializer, parseAsString, useQueryStates } from 'nuqs';
+ import { ReactNode, startTransition, useActionState, useCallback, useEffect } from 'react';
+ import { useFormStatus } from 'react-dom';
+@@ -28,6 +29,7 @@ import { SwatchRadioGroup } from '@/vibes/soul/form/swatch-radio-group';
+ import { Textarea } from '@/vibes/soul/form/textarea';
+ import { Button } from '@/vibes/soul/primitives/button';
+ import { toast } from '@/vibes/soul/primitives/toaster';
++import { useAddToQuote, useAddToShoppingList } from '~/b2b/use-product-details';
+ import { useEvents } from '~/components/analytics/events';
+ import { usePathname, useRouter } from '~/i18n/routing';
+ 
+@@ -118,20 +120,48 @@ export function ProductDetailForm<F extends Field>({
+     }
+   }, [lastResult, successMessage, router]);
+ 
++  const t = useTranslations('Product.ProductDetails');
++  const { isQuotesEnabled, isAddingToQuote, addProductsToQuote } = useAddToQuote();
++  const { isShoppingListEnabled, isAddingToShoppingList, addProductToShoppingList } =
++    useAddToShoppingList();
++
+   const [form, formFields] = useForm({
+     lastResult,
+     constraint: getZodConstraint(schema(fields)),
+     onValidate({ formData }) {
+       return parseWithZod(formData, { schema: schema(fields) });
+     },
+-    onSubmit(event, { formData }) {
++    onSubmit: (event, { formData, submission }) => {
+       event.preventDefault();
+ 
+-      startTransition(() => {
+-        formAction(formData);
+-
+-        events.onAddToCart?.(formData);
+-      });
++      if (submission?.status !== 'success' || !formData.has('intent')) {
++        startTransition(() => {
++          formAction(formData);
++
++          events.onAddToCart?.(formData);
++        });
++
++        return;
++      }
++
++      const selectedOptions = fields.map((field) => ({
++        field,
++        value: submission.value[field.name],
++      }));
++
++      if (formData.get('intent') === 'add-to-quote') {
++        void addProductsToQuote({
++          productId,
++          quantity: Number(submission.value.quantity),
++          selectedOptions,
++        });
++      } else if (formData.get('intent') === 'add-to-shopping-list') {
++        void addProductToShoppingList({
++          productId,
++          quantity: Number(submission.value.quantity),
++          selectedOptions,
++        });
++      }
+     },
+     // @ts-expect-error: `defaultValue` types are conflicting with `onValidate`.
+     defaultValue,
+@@ -178,7 +208,38 @@ export function ProductDetailForm<F extends Field>({
+               required
+               value={quantityControl.value}
+             />
+-            <SubmitButton disabled={ctaDisabled}>{ctaLabel}</SubmitButton>
++            <div className="flex flex-1 gap-x-3">
++              <SubmitButton disabled={ctaDisabled}>{ctaLabel}</SubmitButton>
++
++              {isQuotesEnabled && (
++                <Button
++                  className="flex-1"
++                  loading={isAddingToQuote}
++                  name="intent"
++                  size="medium"
++                  type="submit"
++                  value="add-to-quote"
++                  variant="secondary"
++                >
++                  {t('addToQuote')}
++                </Button>
++              )}
++            </div>
++          </div>
++          <div className="flex flex-1 gap-x-3">
++            {isShoppingListEnabled && (
++              <Button
++                className="flex-1"
++                loading={isAddingToShoppingList}
++                name="intent"
++                size="medium"
++                type="submit"
++                value="add-to-shopping-list"
++                variant="tertiary"
++              >
++                {t('addToShoppingList')}
++              </Button>
++            )}
+             {additionalActions}
+           </div>
+         </div>

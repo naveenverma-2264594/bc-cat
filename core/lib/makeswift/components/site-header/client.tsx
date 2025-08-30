@@ -10,7 +10,8 @@ import {
   useContext,
 } from 'react';
 
-import { HeaderSection } from '@/vibes/soul/sections/header-section';
+//import { HeaderSection } from '@/vibes/soul/sections/header-section';
+import { CustomHeaderSection as HeaderSection } from '~/components/navigation/CustomHeaderSection';
 
 type HeaderSectionProps = ComponentPropsWithoutRef<typeof HeaderSection>;
 
@@ -121,6 +122,8 @@ export const MakeswiftHeader = forwardRef(
           mobileLogoHeight: logo.mobile.height,
           linksPosition,
           logoHref: logo.link?.href ?? passedProps.logoHref,
+          //Pass a specific placeholder so we don't use the default one
+          searchInputPlaceholder: 'Search by product name, ID, SKU or description...',
         }}
         ref={ref}
       />

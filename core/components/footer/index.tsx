@@ -133,7 +133,7 @@ export const Footer = async () => {
         sections={streamableSections}
         socialMediaLinks={socialMediaLinks}
       />
-      <Script
+      {/* <Script
         src="https://cookiesstaging.blob.core.windows.net/scripttemplates/otSDKStub.js"
         data-document-language="true"
         type="text/javascript"
@@ -142,7 +142,7 @@ export const Footer = async () => {
       />
       <Script id="optanon-wrapper" strategy="afterInteractive">
         {`function OptanonWrapper() { }`}
-      </Script>
+      </Script> */}
     </>
   );
 };

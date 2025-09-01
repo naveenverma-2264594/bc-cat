@@ -91,33 +91,9 @@ export const Footer = async () => {
     }));
 
   const streamableSections = Streamable.from(async () => {
-    const customerAccessToken = await getSessionCustomerAccessToken();
-
-    const sectionsData = await getFooterSections(customerAccessToken);
-
-    return [
-      {
-        title: t('categories'),
-        links: sectionsData.categoryTree.map((category) => ({
-          label: category.name,
-          href: category.path,
-        })),
-      },
-      {
-        title: t('brands'),
-        links: removeEdgesAndNodes(sectionsData.brands).map((brand) => ({
-          label: brand.name,
-          href: brand.path,
-        })),
-      },
-      {
-        title: t('navigate'),
-        links: removeEdgesAndNodes(sectionsData.content.pages).map((page) => ({
-          label: page.name,
-          href: page.__typename === 'ExternalLinkPage' ? page.link : page.path,
-        })),
-      },
-    ];
+    // Return empty array to only use Makeswift sections (About, Legal, Help & Support)
+    // This removes the hardcoded Categories, Brands, and Navigate sections
+    return [];
   });
 
   return (

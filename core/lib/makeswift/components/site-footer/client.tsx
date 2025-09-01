@@ -7,11 +7,11 @@ import {
   useContext,
 } from 'react';
 
-import { Footer } from '@/vibes/soul/sections/footer';
+import { CustomFooter } from '~/components/custom-footer';
 
 import { mergeSections } from '../../utils/merge-sections';
 
-type FooterProps = ComponentPropsWithoutRef<typeof Footer>;
+type FooterProps = ComponentPropsWithoutRef<typeof CustomFooter>;
 
 // MakeswiftFooter does not support streamable sections
 type ContextProps = Omit<FooterProps, 'sections' | 'logo'> & {
@@ -68,7 +68,7 @@ export const MakeswiftFooter = ({ logo, sections, copyright }: Props) => {
   const logoObject = logo.src ? { src: logo.src, alt: logo.alt } : passedProps.logo;
 
   return (
-    <Footer
+    <CustomFooter
       {...passedProps}
       copyright={copyright ?? passedProps.copyright}
       logo={logo.show ? logoObject : null}
